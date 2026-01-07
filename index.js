@@ -7,17 +7,39 @@ const path = require('path');
 const esi = new ESIClient("Insight Bot V2");
 const mapper = new MapperService();
 
-const HOME_SYSTEM_ID = "30004040"; // Jita
+const HOME_SYSTEM_ID = "30004040"; 
 const INTEL_RANGE = 10;
 const QUEUE_ID = process.env.ZKILL_QUEUE_ID || "iNSIGHT BOTv2";
 
+async function runRattingSweep() {
+    console.log (" Running Ratting Scanner");
+    try {
+        const res = await axios.get('https://esi.evetech.net/latest/universe/system_kills/');
+        const currentData = res.data;
+        for (const entry of currentData){
+            const sysId = String(entry.system_id)
+            const currentKills = entry.npc_kills;
+            const previousKills = esi.history.npcKills.get(sysId);
+            const delta = currentKills - previousKills;
+
+            esi.history.npcKills.set(sysId, currentKills);
+        }
+        await esi.saveHistory('./data/npc_history.json');
+    } catch (error) {
+        console.error("Sweep failed")
+        
+    }
+}
 async function run (){
     console.log("Loading Map Data");
     await mapper.loadMap('./data/mapSolarSystemJumps.csv');
     await esi.loadSystemCache('./data/systems.json');
     await esi.loadCache(path.join(__dirname, 'data', 'esi_cache.json'));
+    await esi.loadHistory('./data/npc_history.json');
     console.log(`📡 Radar Online: Monitoring ${INTEL_RANGE} jumps from ${HOME_SYSTEM_ID}`);
 
+    runRattingSweep(); 
+    setInterval(runRattingSweep, 60 * 60 * 1000);
 
     while (true) {
         try {

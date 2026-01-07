@@ -17,7 +17,16 @@ class ESIClient{
             corporations: new Map(),
             types: new Map(),
             systems: new Map()
+             
         };
+
+        this.staticSystemData = {};
+        this.isDirty = false;
+
+
+        this.history = {
+            npcKills: new Map()
+            };
 
         this.staticSystemData = {};
         this.isDirty = false;
@@ -138,7 +147,28 @@ class ESIClient{
         return this.staticSystemData[id] || null;
     }
 
+    async saveHistory(filePath) {
+        try {
+            const data = Object.fromEntries(this.history.npcKills);
+            await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+            console.log("📈 NPC History saved.");
+        } catch (err) {
+            console.error("❌ History save failed:", err.message);
+        }
+    }
 
+    async loadHistory(filePath) {
+        try {
+            const data = await fs.readFile(filePath, 'utf8');
+            const json = JSON.parse(data);
+            // Conversion: Ensure IDs are stored consistently (usually as strings from JSON)
+            this.history.npcKills = new Map(Object.entries(json || {}));
+            console.log("📈 NPC History loaded.");
+        } catch (err) {
+            console.warn("⚠️ No history found, starting fresh.");
+        }
+    }
 
 }
+
 module.exports = ESIClient;
