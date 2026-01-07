@@ -2,12 +2,13 @@ require ('dotenv').config();
 const axios = require('axios');
 const MapperService = require ('./mapper');
 const ESIClient = require ('./esi');
+const path = require('path');
 
 const esi = new ESIClient("Insight Bot V2");
 const mapper = new MapperService();
 
-const HOME_SYSTEM_ID = "30000142"; // Jita
-const INTEL_RANGE = 100;
+const HOME_SYSTEM_ID = "30004040"; // Jita
+const INTEL_RANGE = 10;
 const QUEUE_ID = process.env.ZKILL_QUEUE_ID || "iNSIGHT BOTv2";
 
 async function run (){
