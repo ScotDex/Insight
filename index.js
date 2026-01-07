@@ -1,65 +1,62 @@
-require('dotenv').config();
+require ('dotenv').config();
 const axios = require('axios');
-const path = require('path');
-const ESIClient = require('./esi');
-const MapperService = require('./mapper');
-const { kill } = require('process');
+const MapperService = require ('./mapper');
+const ESIClient = require ('./esi');
 
-const esi = new ESIClient("Contact: @YourName");
+const esi = new ESIClient("Insight Bot V2");
 const mapper = new MapperService();
 
-const isWormholeSystem = (systemId) => {
-    return systemId >= 31000001 && systemId <= 32000000;
-};
+const HOME_SYSTEM_ID = "30000142"; // Jita
+const INTEL_RANGE = 100;
+const QUEUE_ID = process.env.ZKILL_QUEUE_ID || "iNSIGHT BOTv2";
 
-;(async () => {
-    console.log("Starting Insight Bot v2");
+async function run (){
+    console.log("Loading Map Data");
+    await mapper.loadMap('./data/mapSolarSystemJumps.csv');
     await esi.loadSystemCache('./data/systems.json');
     await esi.loadCache(path.join(__dirname, 'data', 'esi_cache.json'));
-    console.log("🌌 Universe Map & Chain Loaded.");
-    listeningStream();
-})();
+    console.log(`📡 Radar Online: Monitoring ${INTEL_RANGE} jumps from ${HOME_SYSTEM_ID}`);
 
-const QUEUE_ID = process.env.ZKILL_QUEUE_ID || 'InsightBotv2';
-const REDISQ_URL = `https://zkillredisq.stream/listen.php?queueID=${QUEUE_ID}`;
-
-const HOME_SYSTEM_ID = 30000142;
-const ALERT_RANGE = 5;
-
-async function listeningStream() {
-    console.log(`📡 Radar Scanning: ${QUEUE_ID} | Home: ${HOME_SYSTEM_ID}`);
-    let scanCount = 0; // Ensure this is initialized
 
     while (true) {
         try {
-            const response = await axios.get(REDISQ_URL, { timeout: 15000 });
-            const payload = response.data.package; // Access the 'package' from zKill
+            // Step 1: Listen to the queue
+            const redisResponse = await axios.get(`https://zkillredisq.stream/listen.php?queueID=${QUEUE_ID}`, {
+                timeout: 15000,
+                maxRedirects: 5 // Essential as per the Aug 2025 documentation
+            });
 
-            if (payload) {
-                // zKill RedisQ gives us the killmail directly in the package
-                const killmail = payload; 
-                const systemId = killmail.solar_system_id;
+            const pkg = redisResponse.data.package;
 
-                // FIX: Pass the actual systemId of the kill, not the ALERT_RANGE
+            // Step 2: If a kill happened, fetch the full details from ESI
+            if (pkg && pkg.zkb && pkg.zkb.href) {
+                const esiResponse = await axios.get(pkg.zkb.href);
+                const killmail = esiResponse.data;
+
+                const systemId = String(killmail.solar_system_id);
+                
+                // Step 3: Proximity Check
                 const jumps = mapper.getJumpDistance(HOME_SYSTEM_ID, systemId);
 
-                if (jumps !== -1 && jumps <= ALERT_RANGE) {
-                    console.log(`⚠️ INTEL: Activity ${jumps} jumps away in ${systemId}`);
-                    
+                if (jumps !== -1 && jumps <= INTEL_RANGE) {
                     const victimShip = await esi.getTypeName(killmail.victim.ship_type_id);
-                    // This function will handle your Discord/Logging output
-                    await handlePrivateIntel(killmail, jumps, victimShip);
+                    console.log(`⚠️ INTEL: ${victimShip} destroyed ${jumps} jumps away in ${systemId}`);
                 }
-
-                scanCount++;
-                if (scanCount % 1000 === 0) {
-                    console.log(`🛡️ Radar Status: ${scanCount} kills scanned...`);
-                }
+            } else {
+                // If pkg is null, it just means no kills happened in the last 10s
             }
+
         } catch (err) {
-            const delay = err.response?.status === 429 ? 10000 : 2000;
-            console.error(`Error in stream: ${err.message}`);
-            await new Promise(res => setTimeout(res, delay));
+            // Handle 429 Rate Limits (RedisQ is strict: max 2 requests per second)
+            const isRateLimit = err.response?.status === 429;
+            const delay = isRateLimit ? 10000 : 2000;
+            
+            if (isRateLimit) console.warn("🟡 Rate limited by zKill. Cooling down...");
+            else console.error("🔴 Connection Error:", err.message);
+            
+            await new Promise(r => setTimeout(r, delay));
         }
     }
 }
+
+run();
